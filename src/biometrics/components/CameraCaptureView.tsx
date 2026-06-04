@@ -1,14 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { CameraFrameMetadata } from '../types';
 
 /**
  * NHAI Premium Camera Frame Capture & Simulation Component
  * 
  * Functions:
+ * - Opens a real web camera feed inside the viewfinder overlay using mediaDevices.
  * - Renders a sleek, high-fidelity dark HUD UI with neon overlays.
  * - Draws a face-outline overlay indicating optimal positioning.
- * - Integrates dynamic sensors allowing simulation of live face landmark parameters 
- *   (perfect for browser/simulator evaluation in the hackathon!).
+ * - Draws dual eye iris scanning target overlays.
+ * - Integrates dynamic sensors allowing simulation of live face landmark parameters.
  */
 
 interface CameraCaptureViewProps {
@@ -29,6 +30,35 @@ export const CameraCaptureView: React.FC<CameraCaptureViewProps> = ({
   const [leftEyeOpen, setLeftEyeOpen] = useState<number>(0.95);
   const [rightEyeOpen, setRightEyeOpen] = useState<number>(0.95);
   const [smile, setSmile] = useState<number>(0.10);
+
+  const [isAutoSimulating, setIsAutoSimulating] = useState<boolean>(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+
+  // Request real webcam stream on component mount/activation
+  useEffect(() => {
+    let stream: MediaStream | null = null;
+    if (isProcessing) {
+      setCameraError(null);
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 640, height: 480 } })
+        .then(s => {
+          stream = s;
+          if (videoRef.current) {
+            videoRef.current.srcObject = s;
+          }
+        })
+        .catch(err => {
+          console.error("Camera access error:", err);
+          setCameraError("Camera blocked or unavailable. Using high-fidelity simulator canvas.");
+        });
+    }
+
+    return () => {
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, [isProcessing]);
 
   // Auto Frame dispatch cycle simulating 30 FPS camera feed loops
   useEffect(() => {
@@ -52,49 +82,94 @@ export const CameraCaptureView: React.FC<CameraCaptureViewProps> = ({
     return () => clearInterval(timer);
   }, [isProcessing, brightness, sharpness, yaw, leftEyeOpen, rightEyeOpen, smile]);
 
-  /**
-   * Helper routines allowing testers to automatically execute a complete
-   * successful challenge-response walkthrough on one click!
-   */
-  const triggerAutoSuccessMock = () => {
+  // Turn off auto-simulation when processing stops
+  useEffect(() => {
+    if (!isProcessing) {
+      setIsAutoSimulating(false);
+    }
+  }, [isProcessing]);
+
+  // Handle active challenge changes during auto-simulation
+  useEffect(() => {
+    if (!isAutoSimulating || !isProcessing) return;
+
+    // Reset lighting parameters to baseline
     setBrightness(65);
     setSharpness(75);
-    setYaw(0);
-    setLeftEyeOpen(0.98);
-    setRightEyeOpen(0.98);
-    setSmile(0.05);
 
-    setTimeout(() => {
-      // First stare passed. If next is BLINK, trigger eye close
+    if (activeChallenge === 'STARE') {
+      setYaw(0);
+      setLeftEyeOpen(0.95);
+      setRightEyeOpen(0.95);
+      setSmile(0.10);
+    } else if (activeChallenge === 'BLINK') {
+      // Close eyes
       setLeftEyeOpen(0.05);
       setRightEyeOpen(0.05);
       
-      setTimeout(() => {
-        // Blink passed. Restore eyes, trigger next challenge (e.g. SMILE or YAW)
+      // Reopen eyes after 400ms to complete the blink gesture
+      const timer = setTimeout(() => {
         setLeftEyeOpen(0.95);
         setRightEyeOpen(0.95);
-        setSmile(0.95);
-        setYaw(-25); // Pass TURN_LEFT yaw
-        
-        setTimeout(() => {
-          // Restore yaw
-          setYaw(25); // Pass TURN_RIGHT yaw
-        }, 500);
-      }, 500);
-    }, 500);
+      }, 400);
+      return () => clearTimeout(timer);
+    } else if (activeChallenge === 'SMILE') {
+      setYaw(0);
+      setLeftEyeOpen(0.95);
+      setRightEyeOpen(0.95);
+      setSmile(0.85);
+    } else if (activeChallenge === 'TURN_LEFT') {
+      setYaw(-25);
+      setLeftEyeOpen(0.95);
+      setRightEyeOpen(0.95);
+      setSmile(0.10);
+    } else if (activeChallenge === 'TURN_RIGHT') {
+      setYaw(25);
+      setLeftEyeOpen(0.95);
+      setRightEyeOpen(0.95);
+      setSmile(0.10);
+    }
+  }, [activeChallenge, isAutoSimulating, isProcessing]);
+
+  const triggerAutoSuccessMock = () => {
+    setIsAutoSimulating(true);
   };
 
   return (
     <div style={styles.container}>
       {/* Sleek Camera Viewfinder HUD */}
       <div style={styles.viewfinder}>
+        {/* Real Live Video Stream */}
+        {isProcessing && !cameraError && (
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
+            style={styles.cameraVideo}
+          />
+        )}
+
+        {cameraError && (
+          <div style={styles.cameraErrorOverlay}>
+            <div style={styles.cameraErrorText}>📸 {cameraError}</div>
+          </div>
+        )}
+
         {/* Neon target circle indicator */}
         <div style={{
           ...styles.captureCircle,
           borderColor: isProcessing ? '#00e5ff' : '#00e676'
         }}>
           {isProcessing && (
-            <div style={styles.scanningLine} />
+            <>
+              <div style={styles.scanningLine} />
+              
+              {/* Futuristic Iris Scanner targets */}
+              <div style={styles.eyeScanLeft} />
+              <div style={styles.eyeScanRight} />
+              <div style={styles.irisScannerInfo}>IRIS SCANNER ENGAGED</div>
+            </>
           )}
           
           <div style={styles.faceSilhouette} />
@@ -253,6 +328,34 @@ const styles = {
     justifyContent: 'center',
     alignItems: 'center'
   },
+  cameraVideo: {
+    position: 'absolute' as const,
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover' as const,
+    zIndex: 1,
+    transform: 'scaleX(-1)' // mirror camera feed
+  },
+  cameraErrorOverlay: {
+    position: 'absolute' as const,
+    top: 0,
+    left: 0,
+    width: '100%',
+    height: '100%',
+    backgroundColor: 'rgba(5, 10, 20, 0.9)',
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1,
+    padding: '20px',
+    boxSizing: 'border-box' as const
+  },
+  cameraErrorText: {
+    fontSize: '11px',
+    color: '#94a3b8',
+    textAlign: 'center' as const,
+    lineHeight: '1.5'
+  },
   captureCircle: {
     width: '210px',
     height: '210px',
@@ -264,7 +367,8 @@ const styles = {
     alignItems: 'center',
     position: 'relative' as const,
     transition: 'border-color 0.4s ease',
-    boxShadow: '0 0 25px rgba(0, 229, 255, 0.15)'
+    boxShadow: '0 0 25px rgba(0, 229, 255, 0.15)',
+    zIndex: 2
   },
   scanningLine: {
     position: 'absolute' as const,
@@ -273,13 +377,55 @@ const styles = {
     backgroundColor: 'rgba(0, 229, 255, 0.6)',
     boxShadow: '0 0 10px #00e5ff',
     animation: 'scanAnimation 2.5s infinite linear',
-    top: 0
+    top: 0,
+    zIndex: 3
+  },
+  eyeScanLeft: {
+    position: 'absolute' as const,
+    top: '40%',
+    left: '26%',
+    width: '24px',
+    height: '24px',
+    borderRadius: '50%',
+    border: '1.5px dashed #00e5ff',
+    boxShadow: '0 0 8px rgba(0,229,255,0.4)',
+    animation: 'pulseAnimation 1.5s infinite ease-in-out',
+    zIndex: 3
+  },
+  eyeScanRight: {
+    position: 'absolute' as const,
+    top: '40%',
+    right: '26%',
+    width: '24px',
+    height: '24px',
+    borderRadius: '50%',
+    border: '1.5px dashed #00e5ff',
+    boxShadow: '0 0 8px rgba(0,229,255,0.4)',
+    animation: 'pulseAnimation 1.5s infinite ease-in-out',
+    zIndex: 3
+  },
+  irisScannerInfo: {
+    position: 'absolute' as const,
+    top: '68%',
+    left: '50%',
+    transform: 'translateX(-50%)',
+    color: '#00e5ff',
+    fontSize: '8px',
+    fontWeight: 'bold' as const,
+    letterSpacing: '0.5px',
+    backgroundColor: 'rgba(5, 10, 20, 0.85)',
+    padding: '2px 8px',
+    borderRadius: '4px',
+    border: '1px solid rgba(0, 229, 255, 0.25)',
+    whiteSpace: 'nowrap' as const,
+    zIndex: 3
   },
   faceSilhouette: {
     width: '140px',
     height: '170px',
     borderRadius: '50% 50% 50% 50% / 60% 60% 40% 40%',
-    border: '1px dashed rgba(255, 255, 255, 0.25)'
+    border: '1px dashed rgba(255, 255, 255, 0.25)',
+    zIndex: 2
   },
   boundingBox: {
     position: 'absolute' as const,
@@ -288,7 +434,8 @@ const styles = {
     border: '1.5px solid #00e676',
     boxShadow: '0 0 15px rgba(0, 230, 118, 0.2)',
     transition: 'transform 0.1s linear',
-    pointerEvents: 'none' as const
+    pointerEvents: 'none' as const,
+    zIndex: 2
   },
   cornerTL: {
     position: 'absolute' as const,
@@ -348,7 +495,8 @@ const styles = {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    pointerEvents: 'none' as const
+    pointerEvents: 'none' as const,
+    zIndex: 2
   },
   hudBadge: {
     backgroundColor: 'rgba(5, 10, 20, 0.85)',
