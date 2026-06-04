@@ -1,0 +1,10 @@
+{
+  "dependencies": {
+    "react-native-netinfo": "^1.1.0",
+    "react-native-sqlite-storage": "^6.0.1",
+    "react-native-vision-camera": "^5.0.10"
+  },
+  "devDependencies": {
+    "@react-native-community/cli": "^20.1.3"
+  }
+}
